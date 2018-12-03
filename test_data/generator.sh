@@ -1,6 +1,6 @@
 #!/bin/bash
 # generateur de matrice d'adjacente pour un reseau circulaire
-echo $1 >> mat
+echo $1 > mat
 for i in $(seq 0 1 $(($1 - 1)))
 do
     for j in $(seq 0 1 $(($1 - 1)))

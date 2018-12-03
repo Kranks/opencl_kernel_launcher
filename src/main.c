@@ -13,6 +13,9 @@
 #ifndef LOG
 #define LOG 1
 #endif
+#ifndef OPENCL1
+#define OPENCL1 0
+#endif 
 
 //
 // Lecture d'un fichier source
@@ -96,7 +99,7 @@ int main (int argc, char* argv[]) {
     int *A = NULL;  // Input array
     int *B = NULL;  // Output array
     int *C = NULL;
-
+   
     // Elements in each array
     int elements = 0;
 
@@ -109,12 +112,14 @@ int main (int argc, char* argv[]) {
     A = (int*)malloc(datasize);
     B = (int*)malloc(datasize);
     C = (int*)malloc(datasize);
-
+   
     // Initialize the input data
     for(int i = 0; i < elements * elements; i++) {
         scanf("%d", &A[i]);
     }
-
+    
+    print_matrix(A, elements);
+    
     // Use this to check the output of each API call
     cl_int status;
 
@@ -143,9 +148,6 @@ int main (int argc, char* argv[]) {
         displayInfoPlatforms(numPlatforms, platforms);
     }
 
-    // tester jusqu'ici
-    return 0;
-   
     //-----------------------------------------------------
     // STEP 2: Discover and initialize the devices
     //-----------------------------------------------------
@@ -172,9 +174,8 @@ int main (int argc, char* argv[]) {
     }
     // Allocate enough space for each device
 
-    devices =
-    (cl_device_id*)malloc(
-                          numDevices*sizeof(cl_device_id));
+    devices = (cl_device_id*)malloc(
+                                    numDevices*sizeof(cl_device_id));
 
     // Fill in devices with clGetDeviceIDs()
     status = clGetDeviceIDs(
@@ -187,7 +188,7 @@ int main (int argc, char* argv[]) {
     if (LOG) {
         displayInfoDevices(numDevices, devices);
     }
-
+    
     //-----------------------------------------------------
     // STEP 3: Create a context
     //-----------------------------------------------------
@@ -203,7 +204,7 @@ int main (int argc, char* argv[]) {
                               NULL,
                               NULL,
                               &status);
-
+    
     //-----------------------------------------------------
     // STEP 4: Create a command queue
     //-----------------------------------------------------
@@ -213,11 +214,19 @@ int main (int argc, char* argv[]) {
     // Create a command queue using clCreateCommandQueue(),
     // and associate it with the device you want to execute
     // on 
-    cmdQueue = clCreateCommandQueueWithProperties(
-                                    context,
-                                    devices[0],
-                                    0,
-                                    &status);
+    if (OPENCL1) {
+        cmdQueue = clCreateCommandQueue(
+                                        context,
+                                        devices[0],
+                                        0,
+                                        &status);
+    } else {
+        cmdQueue = clCreateCommandQueueWithProperties(
+                                        context,
+                                        devices[0],
+                                        0,
+                                        &status);    
+    }
 
     //-----------------------------------------------------
     // STEP 5: Create device buffers
@@ -226,13 +235,14 @@ int main (int argc, char* argv[]) {
     cl_mem bufferA;  // Input array on the device
     cl_mem bufferB;  // Input array on the device
     cl_mem bufferC;  // Output array on the device
-
+    cl_int n; // Input for the size of the matrix
+    
     // Use clCreateBuffer() to create a buffer object (d_A)
     // that will contain the data from the host array A
 
     bufferA = clCreateBuffer(
                              context,
-                             CL_MEM_READ_ONLY,
+                             CL_MEM_READ_WRITE,
                              datasize,
                              NULL,
                              &status);
@@ -256,7 +266,9 @@ int main (int argc, char* argv[]) {
                              datasize,
                              NULL,
                              &status);
-
+    
+    n = elements;
+                       
     //-----------------------------------------------------
     // STEP 6: Write host data to device buffers
     //-----------------------------------------------------
@@ -274,9 +286,11 @@ int main (int argc, char* argv[]) {
                                   0,
                                   NULL,
                                   NULL);
-   
+    
+    
     // Use clEnqueueWriteBuffer() to write input array B to
     // the device buffer bufferB
+    /*
     status = clEnqueueWriteBuffer(
                                   cmdQueue,
                                   bufferB,
@@ -287,6 +301,7 @@ int main (int argc, char* argv[]) {
                                   0,
                                   NULL,
                                   NULL);
+    */
 
     //-----------------------------------------------------
     // STEP 7: Create and compile the program
@@ -311,6 +326,21 @@ int main (int argc, char* argv[]) {
                             NULL);
 
     if (status) printf("ERREUR A LA COMPILATION: %d\n", status);
+    
+    if (status == CL_BUILD_PROGRAM_FAILURE) {
+    // Determine the size of the log
+        size_t log_size;
+        clGetProgramBuildInfo(program, devices[0], CL_PROGRAM_BUILD_LOG, 0, NULL, &log_size);
+
+        // Allocate memory for the log
+        char *log = (char *) malloc(log_size);
+
+        // Get the log
+        clGetProgramBuildInfo(program, devices[0], CL_PROGRAM_BUILD_LOG, log_size, log, NULL);
+
+        // Print the log
+        printf("%s\n", log);
+    }
 
     //-----------------------------------------------------
     // STEP 8: Create the kernel
@@ -319,9 +349,9 @@ int main (int argc, char* argv[]) {
     cl_kernel kernel = NULL;
 
     // Use clCreateKernel() to create a kernel from the
-    // vector addition function (named "vecadd")
+    // given kernel function
 
-    kernel = clCreateKernel(program, "vecadd", &status);
+    kernel = clCreateKernel(program, "compute_floyd", &status);
 
     //-----------------------------------------------------
     // STEP 9: Set the kernel arguments
@@ -337,14 +367,16 @@ int main (int argc, char* argv[]) {
     status |= clSetKernelArg(
                              kernel,
                              1,
-                             sizeof(cl_mem),
-                             &bufferB);
+                             sizeof(cl_int),
+                             &n);
+    /*
     status |= clSetKernelArg(
                              kernel,
                              2,
                              sizeof(cl_mem),
                              &bufferC);
-
+    */
+    
     //-----------------------------------------------------
     // STEP 10: Configure the work-item structure
     //-----------------------------------------------------
@@ -354,11 +386,12 @@ int main (int argc, char* argv[]) {
     // A workgroup size (local work size) is not
     // required, but can be used.
 
-    size_t globalWorkSize[1];   
+    size_t globalWorkSize[2];   
 
     // There are 'elements' work-items
     globalWorkSize[0] = elements;
-
+    globalWorkSize[1] = elements;
+   
     //-----------------------------------------------------
     // STEP 11: Enqueue the kernel for execution
     //-----------------------------------------------------
@@ -366,26 +399,29 @@ int main (int argc, char* argv[]) {
     // Execute the kernel by using clEnqueueNDRangeKernel().
     // 'globalWorkSize' is the 1D dimension of the
     // work-items
-    status = clEnqueueNDRangeKernel(
-                                    cmdQueue,
-                                    kernel,
-                                    1,
-                                    NULL,
-                                    globalWorkSize,
-                                    NULL,
-                                    0,
-                                    NULL,
-                                    NULL);
+    for (int i = 0; i < elements; i++) {
+        clSetKernelArg(kernel, 2, sizeof(cl_int), &i);
+        status = clEnqueueNDRangeKernel(
+                                        cmdQueue,
+                                        kernel,
+                                        2,
+                                        NULL,
+                                        globalWorkSize,
+                                        NULL,
+                                        0,
+                                        NULL,
+                                        NULL);
+    }
    
     //-----------------------------------------------------
     // STEP 12: Read the output buffer back to the host
     //-----------------------------------------------------
-
+    
     // Use clEnqueueReadBuffer() to read the OpenCL output 
     // buffer (bufferC) to the host output array (C)
     clEnqueueReadBuffer(
                         cmdQueue,
-                        bufferC,
+                        bufferA,
                         CL_TRUE,
                         0,
                         datasize,
@@ -393,21 +429,8 @@ int main (int argc, char* argv[]) {
                         0,
                         NULL,
                         NULL);
-   
-    // Verify the output
-    bool result = true;
-    for(int i = 0; i < elements; i++) {
-        if(C[i] != i+i) {
-            result = false;
-            break;
-        }
-    }
 
-    if(result) {
-        printf("Output is correct\n");
-    } else {
-        printf("Output is incorrect\n");
-    }
+    print_matrix(C, elements); 
 
     //-----------------------------------------------------
     // STEP 13: Release OpenCL resources
@@ -415,6 +438,7 @@ int main (int argc, char* argv[]) {
 
     // Free OpenCL resources
     clReleaseKernel(kernel);
+    
     clReleaseProgram(program);
     clReleaseCommandQueue(cmdQueue);
     clReleaseMemObject(bufferA);
