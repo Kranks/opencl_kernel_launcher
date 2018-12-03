@@ -10,6 +10,9 @@
 #include <CL/cl.h>
 #endif
 
+#ifndef LOG
+#define LOG 1
+#endif
 
 //
 // Lecture d'un fichier source
@@ -61,7 +64,20 @@ void displayInfoPlatforms(cl_uint numPlatforms, cl_platform_id *platforms) {
         free(infoData);
     }
 
+}
 
+void displayInfoDevices(cl_uint numDevices, cl_device_id *devices) {
+    
+    size_t infoSize;
+    char *infoData;
+    for (int i=0; i < numDevices; i++){
+        clGetDeviceInfo(devices[i], CL_DEVICE_NAME, 0, NULL, &infoSize);
+        infoData = malloc(infoSize);
+        clGetDeviceInfo(devices[i], CL_DEVICE_NAME, infoSize, infoData, NULL);
+        printf("Name of device %d: %s\n", i, infoData);
+        free(infoData);
+    }
+    
 }
 
 int main (int argc, char* argv[]) {
@@ -113,23 +129,21 @@ int main (int argc, char* argv[]) {
     status = clGetPlatformIDs(0, NULL, &numPlatforms);
 
     if (!numPlatforms) {
-        printf("No platform available \n");
+        printf("Error : no available platform.\n");
+        return 0;
     }
+    
     // Allocate enough space for each platform
     platforms = (cl_platform_id*)malloc(numPlatforms*sizeof(cl_platform_id));
 
     // Fill in platforms with clGetPlatformIDs()
     status = clGetPlatformIDs(numPlatforms, platforms, NULL);
 
-    printf("%d", numPlatforms);
-    char Name[1000];
+    if (LOG) {
+        displayInfoPlatforms(numPlatforms, platforms);
+    }
 
-    clGetPlatformInfo(platforms[0], CL_PLATFORM_NAME, sizeof(Name), Name, NULL);
-
-    printf("Name of platform : %s\n", Name);
-    
-    print_matrix(A, elements);
-    //displayInfoPlatforms(numPlatforms, platforms);
+    // tester jusqu'ici
     return 0;
    
     //-----------------------------------------------------
@@ -148,8 +162,14 @@ int main (int argc, char* argv[]) {
                             NULL,
                             &numDevices);
 
-    printf("Number of devices = %d\n", (int)numDevices);
+    if (LOG) {
+        printf("Number of devices = %d\n", (int)numDevices);
+    }
 
+    if (!numDevices) {
+        printf("Error : no devices found.\n");
+        return 0;
+    }
     // Allocate enough space for each device
 
     devices =
@@ -164,10 +184,8 @@ int main (int argc, char* argv[]) {
                             devices,
                             NULL);
 
-
-    for (int i=0; i<numDevices; i++){
-        clGetDeviceInfo(devices[i], CL_DEVICE_NAME, sizeof(Name), Name, NULL);
-        printf("Name of device %d: %s\n", i, Name);
+    if (LOG) {
+        displayInfoDevices(numDevices, devices);
     }
 
     //-----------------------------------------------------
